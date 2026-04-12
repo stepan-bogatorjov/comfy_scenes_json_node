@@ -1,0 +1,14 @@
+[project]
+name = "comfy-scenes-json-node"
+description = "ComfyUI nodes for driving scene workflows from a story JSON file"
+version = "1.0.0"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/stepan-bogatorjov/comfy_scenes_json_node"
+
+[tool.comfy]
+PublisherId = "stepan"
+DisplayName = "Story JSON Nodes"
+Icon = ""
