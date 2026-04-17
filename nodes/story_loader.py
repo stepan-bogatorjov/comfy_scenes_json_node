@@ -16,8 +16,8 @@ class StoryJsonLoader:
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "INT")
-    RETURN_NAMES = ("title", "viral_title", "description", "reference_image_prompt", "scene_count")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("title", "viral_title", "description", "reference_image_prompt")
     FUNCTION = "load_story"
     CATEGORY = "ViralStory"
 
@@ -29,5 +29,4 @@ class StoryJsonLoader:
             str(data["viralTitle"]),
             str(data["description"]),
             str(data["reference_image_prompt"]),
-            len(data["scenes"]),
         )
