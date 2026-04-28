@@ -1,6 +1,6 @@
 [project]
-name = "comfy-scenes-json-node"
-description = "ComfyUI nodes for driving scene workflows from a story JSON file"
+name = "comfy-json-to-list-node"
+description = "ComfyUI node that converts a JSON array string into a LIST output"
 version = "1.2.0"
 license = { file = "LICENSE" }
 dependencies = []

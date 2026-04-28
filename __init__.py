@@ -1,25 +1,19 @@
-"""ComfyUI custom nodes for driving a scene workflow from a story JSON file."""
-
-from .nodes.story_loader import StoryJsonLoader
-from .nodes.scene_selector import StorySceneSelector
-from .nodes.scene_filename import StorySceneFilename
-from .nodes.scene_auto_queue import StorySceneAutoQueue
-from .nodes.video_concat import StoryVideoConcat
+from .nodes.save_video_passthrough_node import SaveVideoPassthrough
+from .nodes.save_image_passthrough_node import SaveImagePassthrough
+from .nodes.mock_generators import MockSceneImage, MockSceneVideo
 
 NODE_CLASS_MAPPINGS = {
-    "StoryJsonLoader": StoryJsonLoader,
-    "StorySceneSelector": StorySceneSelector,
-    "StorySceneFilename": StorySceneFilename,
-    "StorySceneAutoQueue": StorySceneAutoQueue,
-    "StoryVideoConcat": StoryVideoConcat,
+    "SaveVideoPassthrough": SaveVideoPassthrough,
+    "SaveImagePassthrough": SaveImagePassthrough,
+    "MockSceneImage": MockSceneImage,
+    "MockSceneVideo": MockSceneVideo,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "StoryJsonLoader": "Story JSON Loader",
-    "StorySceneSelector": "Story Scene Selector",
-    "StorySceneFilename": "Story Scene Filename",
-    "StorySceneAutoQueue": "Story Scene Auto Queue (Loop)",
-    "StoryVideoConcat": "Story Video Concat",
+    "SaveVideoPassthrough": "Save Video Passthrough",
+    "SaveImagePassthrough": "Save Image Passthrough",
+    "MockSceneImage": "Mock Scene Image",
+    "MockSceneVideo": "Mock Scene Video",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
