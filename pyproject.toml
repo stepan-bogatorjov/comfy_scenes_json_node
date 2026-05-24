@@ -3,7 +3,10 @@ name = "comfy-json-to-list-node"
 description = "ComfyUI node that converts a JSON array string into a LIST output"
 version = "1.2.0"
 license = { file = "LICENSE" }
-dependencies = []
+dependencies = [
+    "requests>=2.28.0",
+    "lingua-language-detector>=2.0.0",
+]
 
 [project.urls]
 Repository = "https://github.com/stepan-bogatorjov/comfy_scenes_json_node"
