@@ -20,6 +20,29 @@ class _AnyType(str):
 ANY = _AnyType("*")
 
 
+_STRFTIME_TO_RE = {
+    "%d": r"\d{2}", "%m": r"\d{2}", "%Y": r"\d{4}", "%y": r"\d{2}",
+    "%H": r"\d{2}", "%M": r"\d{2}", "%S": r"\d{2}", "%j": r"\d{3}",
+}
+
+
+def _archive_pattern(date_format: str) -> re.Pattern:
+    """Regex matching this node's own run-archive folders ("<date> NNN") for
+    ANY date, derived from date_format — so we never re-archive past runs."""
+    fmt = date_format or "%d.%m.%Y"
+    out = []
+    i = 0
+    while i < len(fmt):
+        token = fmt[i:i + 2]
+        if token in _STRFTIME_TO_RE:
+            out.append(_STRFTIME_TO_RE[token])
+            i += 2
+        else:
+            out.append(re.escape(fmt[i]))
+            i += 1
+    return re.compile(rf"^{''.join(out)}\s+\d+$")
+
+
 def _next_folder_index(output_dir: str, date_str: str) -> int:
     """Find the next free NNN for a given date prefix in output_dir."""
     # Matches "<date> 001", "<date> 042" etc. (3-digit zero-padded by default,
@@ -41,7 +64,11 @@ def _next_folder_index(output_dir: str, date_str: str) -> int:
 
 
 class CollectRunOutputs:
-    """Move every loose file from output/ into output/<DD.MM.YYYY NNN>/.
+    """Move every loose item from output/ into output/<DD.MM.YYYY NNN>/.
+
+    Both loose files (e.g. final_00001.mp4) and subfolders (e.g. scenes/,
+    voiceover/) produced during a run are archived; previously-created run
+    folders ("<date> NNN") are skipped so past runs are never re-moved.
 
     Designed to run after StoryFinalCompile — wire its `output_path` into the
     `trigger` socket. Date is the local date at run time; NNN auto-increments
@@ -81,27 +108,29 @@ class CollectRunOutputs:
         folder_name = f"{date_str} {next_idx:0{index_padding}d}"
         target_dir = os.path.join(output_dir, folder_name)
 
-        # Snapshot loose files first so we don't try to move the target dir
-        # if it ends up matching the date prefix during the same listing.
-        loose_files = [
+        # Snapshot loose items first. Skip our own run-archive folders ("<date>
+        # NNN") so previous runs (and the target dir itself) are never re-moved;
+        # everything else — loose files and content subfolders — gets archived.
+        archive_re = _archive_pattern(date_format)
+        loose_items = [
             name for name in os.listdir(output_dir)
-            if os.path.isfile(os.path.join(output_dir, name))
+            if not (os.path.isdir(os.path.join(output_dir, name)) and archive_re.match(name))
         ]
 
-        if not loose_files:
-            print(f"[CollectRunOutputs] no loose files in {output_dir} — nothing to move")
+        if not loose_items:
+            print(f"[CollectRunOutputs] no loose items in {output_dir} — nothing to move")
             return (output_dir,)
 
         if dry_run:
             print(f"[CollectRunOutputs] DRY RUN -> would create {target_dir}")
-            for name in loose_files:
+            for name in loose_items:
                 print(f"[CollectRunOutputs] DRY RUN -> would move {name}")
             return (target_dir,)
 
         os.makedirs(target_dir, exist_ok=True)
 
         moved = 0
-        for name in loose_files:
+        for name in loose_items:
             src = os.path.join(output_dir, name)
             dst = os.path.join(target_dir, name)
             # Defensive — if a file with the same name already exists in
@@ -119,7 +148,7 @@ class CollectRunOutputs:
             shutil.move(src, dst)
             moved += 1
 
-        print(f"[CollectRunOutputs] moved {moved} file(s) -> {target_dir}")
+        print(f"[CollectRunOutputs] moved {moved} item(s) -> {target_dir}")
         return (target_dir,)
 
 

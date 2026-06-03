@@ -13,6 +13,8 @@ class SaveAudioPassthrough:
             "required": {
                 "audio": ("AUDIO",),
                 "filename_prefix": ("STRING", {"default": "scene"}),
+                "output_folder": ("STRING", {"default": ""}),
+                "add_counter": ("BOOLEAN", {"default": True}),
             }
         }
 
@@ -21,8 +23,10 @@ class SaveAudioPassthrough:
     FUNCTION = "save_and_return"
     CATEGORY = "audio"
 
-    def save_and_return(self, audio, filename_prefix):
+    def save_and_return(self, audio, filename_prefix, output_folder="", add_counter=True):
         output_dir = folder_paths.get_output_directory()
+        if output_folder.strip():
+            output_dir = os.path.join(output_dir, *output_folder.replace("\\", "/").strip("/").split("/"))
 
         clean_prefix = filename_prefix
         if "/" in filename_prefix or "\\" in filename_prefix:
@@ -45,13 +49,19 @@ class SaveAudioPassthrough:
             batch = waveform.view(1, 1, -1)
 
         counter = 1
-        for clip in batch:
-            while True:
-                filename = f"{clean_prefix}_{counter:05d}.wav"
+        multiple = len(batch) > 1
+        for idx, clip in enumerate(batch):
+            if add_counter:
+                while True:
+                    filename = f"{clean_prefix}_{counter:05d}.wav"
+                    full_path = os.path.join(output_dir, filename)
+                    if not os.path.exists(full_path):
+                        break
+                    counter += 1
+            else:
+                suffix = f"_{idx + 1}" if multiple else ""
+                filename = f"{clean_prefix}{suffix}.wav"
                 full_path = os.path.join(output_dir, filename)
-                if not os.path.exists(full_path):
-                    break
-                counter += 1
 
             tensor = clip.detach().cpu().to(torch.float32).clamp_(-1.0, 1.0)
             channels = tensor.shape[0]

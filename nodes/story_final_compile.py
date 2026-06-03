@@ -66,6 +66,8 @@ def _atempo_chain(tempo: float) -> str:
 
 def _find_scene_videos(output_dir: str) -> list[str]:
     by_scene: dict[int, tuple[int, str]] = {}
+    if not os.path.isdir(output_dir):
+        return []
     for fname in os.listdir(output_dir):
         match = SCENE_RE.match(fname)
         if not match:
@@ -76,6 +78,13 @@ def _find_scene_videos(output_dir: str) -> list[str]:
         if scene_num not in by_scene or by_scene[scene_num][0] < counter:
             by_scene[scene_num] = (counter, full)
     return [by_scene[k][1] for k in sorted(by_scene.keys())]
+
+
+def _resolve_folder(base_dir: str, sub: str) -> str:
+    """Join a user-supplied subfolder onto base_dir; empty -> base_dir itself."""
+    if not sub or not sub.strip():
+        return base_dir
+    return os.path.join(base_dir, *sub.replace("\\", "/").strip("/").split("/"))
 
 
 def _find_voiceover(output_dir: str) -> str | None:
@@ -95,6 +104,8 @@ class StoryFinalCompile:
                 "trigger": (ANY, {}),
             },
             "optional": {
+                "scenes_folder": ("STRING", {"default": ""}),
+                "voiceover_folder": ("STRING", {"default": ""}),
                 "transition_duration": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 2.0, "step": 0.05}),
                 "filename_prefix": ("STRING", {"default": "final"}),
             },
@@ -110,31 +121,35 @@ class StoryFinalCompile:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def compile(self, trigger, transition_duration=0.2, filename_prefix="final"):
+    def compile(self, trigger, scenes_folder="", voiceover_folder="",
+                transition_duration=0.2, filename_prefix="final"):
         output_dir = folder_paths.get_output_directory()
+        scenes_dir = _resolve_folder(output_dir, scenes_folder)
+        voiceover_dir = _resolve_folder(output_dir, voiceover_folder)
 
-        videos = _find_scene_videos(output_dir)
+        videos = _find_scene_videos(scenes_dir)
         if not videos:
             raise FileNotFoundError(
-                f"[StoryFinalCompile] No scene videos matching '<n>_<n>.mp4' in {output_dir}"
+                f"[StoryFinalCompile] No scene videos matching '<n>_<n>.mp4' in {scenes_dir}"
             )
 
-        voiceover = _find_voiceover(output_dir)
-        if not voiceover:
-            raise FileNotFoundError(
-                f"[StoryFinalCompile] No 'voiceover_*' audio file found in {output_dir}"
-            )
+        voiceover = _find_voiceover(voiceover_dir)
+        has_voiceover = voiceover is not None
 
         ffmpeg = _get_ffmpeg_exe()
         v_durations = [_probe_duration(ffmpeg, v) for v in videos]
-        a_duration = _probe_duration(ffmpeg, voiceover)
 
         n = len(videos)
         trans = float(transition_duration) if n > 1 else 0.0
         final_video_dur = sum(v_durations) - (n - 1) * trans
 
-        tempo = a_duration / final_video_dur if final_video_dur > 0 else 1.0
-        atempo = _atempo_chain(tempo)
+        # Only stretch/squeeze the audio to fit the video when a voiceover
+        # exists; without one there is no audio track to retime.
+        a_duration = atempo = None
+        if has_voiceover:
+            a_duration = _probe_duration(ffmpeg, voiceover)
+            tempo = a_duration / final_video_dur if final_video_dur > 0 else 1.0
+            atempo = _atempo_chain(tempo)
 
         counter = 1
         while True:
@@ -147,11 +162,12 @@ class StoryFinalCompile:
         cmd = [ffmpeg, "-y"]
         for v in videos:
             cmd += ["-i", v]
-        cmd += ["-i", voiceover]
-        audio_idx = n
+        if has_voiceover:
+            cmd += ["-i", voiceover]
+            audio_idx = n
 
+        parts = []
         if n > 1:
-            parts = []
             prev = "[0:v]"
             cum = 0.0
             for i in range(1, n):
@@ -163,30 +179,34 @@ class StoryFinalCompile:
                     f"duration={trans}:offset={offset:.3f}{out_label}"
                 )
                 prev = out_label
-            parts.append(f"[{audio_idx}:a]{atempo}[aout]")
-            filter_complex = ";".join(parts)
-            cmd += [
-                "-filter_complex", filter_complex,
-                "-map", "[vout]", "-map", "[aout]",
-            ]
+            video_map = "[vout]"
         else:
-            filter_complex = f"[{audio_idx}:a]{atempo}[aout]"
-            cmd += [
-                "-filter_complex", filter_complex,
-                "-map", "0:v", "-map", "[aout]",
-            ]
+            video_map = "0:v"
 
-        cmd += [
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-shortest", out_path,
-        ]
+        if has_voiceover:
+            parts.append(f"[{audio_idx}:a]{atempo}[aout]")
+
+        if parts:
+            cmd += ["-filter_complex", ";".join(parts)]
+        cmd += ["-map", video_map]
+        if has_voiceover:
+            cmd += ["-map", "[aout]"]
+
+        cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
+        if has_voiceover:
+            cmd += ["-c:a", "aac", "-shortest"]
+        cmd += [out_path]
 
         print(f"[StoryFinalCompile] scenes={n} videos={[os.path.basename(v) for v in videos]}")
-        print(f"[StoryFinalCompile] voiceover={os.path.basename(voiceover)}")
-        print(
-            f"[StoryFinalCompile] video_dur={final_video_dur:.2f}s "
-            f"audio_dur={a_duration:.2f}s tempo={tempo:.4f}"
-        )
+        if has_voiceover:
+            tempo = a_duration / final_video_dur if final_video_dur > 0 else 1.0
+            print(f"[StoryFinalCompile] voiceover={os.path.basename(voiceover)}")
+            print(
+                f"[StoryFinalCompile] video_dur={final_video_dur:.2f}s "
+                f"audio_dur={a_duration:.2f}s tempo={tempo:.4f}"
+            )
+        else:
+            print(f"[StoryFinalCompile] no voiceover — compiling video only")
         print(f"[StoryFinalCompile] -> {out_path}")
 
         result = subprocess.run(

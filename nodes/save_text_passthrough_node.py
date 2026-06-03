@@ -10,7 +10,9 @@ class SaveTextPassthrough:
             "required": {
                 "text": ("STRING", {"forceInput": True}),
                 "filename_prefix": ("STRING", {"default": "scene"}),
+                "output_folder": ("STRING", {"default": ""}),
                 "extension": ("STRING", {"default": "txt"}),
+                "add_counter": ("BOOLEAN", {"default": True}),
             }
         }
 
@@ -19,8 +21,10 @@ class SaveTextPassthrough:
     FUNCTION = "save_and_return"
     CATEGORY = "text"
 
-    def save_and_return(self, text, filename_prefix, extension):
+    def save_and_return(self, text, filename_prefix, output_folder="", extension="txt", add_counter=True):
         output_dir = folder_paths.get_output_directory()
+        if output_folder.strip():
+            output_dir = os.path.join(output_dir, *output_folder.replace("\\", "/").strip("/").split("/"))
 
         clean_prefix = filename_prefix
         if "/" in filename_prefix or "\\" in filename_prefix:
@@ -34,13 +38,17 @@ class SaveTextPassthrough:
 
         ext = (extension or "txt").lstrip(".") or "txt"
 
-        counter = 1
-        while True:
-            filename = f"{clean_prefix}_{counter:05d}.{ext}"
+        if add_counter:
+            counter = 1
+            while True:
+                filename = f"{clean_prefix}_{counter:05d}.{ext}"
+                full_path = os.path.join(output_dir, filename)
+                if not os.path.exists(full_path):
+                    break
+                counter += 1
+        else:
+            filename = f"{clean_prefix}.{ext}"
             full_path = os.path.join(output_dir, filename)
-            if not os.path.exists(full_path):
-                break
-            counter += 1
 
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(text)

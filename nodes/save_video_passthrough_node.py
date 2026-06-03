@@ -9,6 +9,8 @@ class SaveVideoPassthrough:
             "required": {
                 "video": ("VIDEO",),
                 "filename_prefix": ("STRING", {"default": "scene"}),
+                "output_folder": ("STRING", {"default": ""}),
+                "add_counter": ("BOOLEAN", {"default": True}),
             }
         }
 
@@ -17,8 +19,10 @@ class SaveVideoPassthrough:
     FUNCTION = "save_and_return"
     CATEGORY = "video"
 
-    def save_and_return(self, video, filename_prefix):
+    def save_and_return(self, video, filename_prefix, output_folder="", add_counter=True):
         output_dir = folder_paths.get_output_directory()
+        if output_folder.strip():
+            output_dir = os.path.join(output_dir, *output_folder.replace("\\", "/").strip("/").split("/"))
 
         subfolder = ""
         clean_prefix = filename_prefix
@@ -32,13 +36,17 @@ class SaveVideoPassthrough:
 
         os.makedirs(output_dir, exist_ok=True)
 
-        counter = 1
-        while True:
-            filename = f"{clean_prefix}_{counter:05d}.mp4"
+        if add_counter:
+            counter = 1
+            while True:
+                filename = f"{clean_prefix}_{counter:05d}.mp4"
+                full_path = os.path.join(output_dir, filename)
+                if not os.path.exists(full_path):
+                    break
+                counter += 1
+        else:
+            filename = f"{clean_prefix}.mp4"
             full_path = os.path.join(output_dir, filename)
-            if not os.path.exists(full_path):
-                break
-            counter += 1
 
         print(f"[SaveVideoPassthrough] saving to: {full_path}")
 

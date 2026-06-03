@@ -13,6 +13,8 @@ class SaveImagePassthrough:
             "required": {
                 "image": ("IMAGE",),
                 "filename_prefix": ("STRING", {"default": "scene"}),
+                "output_folder": ("STRING", {"default": ""}),
+                "add_counter": ("BOOLEAN", {"default": True}),
             }
         }
 
@@ -21,8 +23,10 @@ class SaveImagePassthrough:
     FUNCTION = "save_and_return"
     CATEGORY = "image"
 
-    def save_and_return(self, image, filename_prefix):
+    def save_and_return(self, image, filename_prefix, output_folder="", add_counter=True):
         output_dir = folder_paths.get_output_directory()
+        if output_folder.strip():
+            output_dir = os.path.join(output_dir, *output_folder.replace("\\", "/").strip("/").split("/"))
 
         clean_prefix = filename_prefix
         if "/" in filename_prefix or "\\" in filename_prefix:
@@ -35,13 +39,19 @@ class SaveImagePassthrough:
         os.makedirs(output_dir, exist_ok=True)
 
         counter = 1
-        for frame in image:
-            while True:
-                filename = f"{clean_prefix}_{counter:05d}.png"
+        multiple = len(image) > 1
+        for idx, frame in enumerate(image):
+            if add_counter:
+                while True:
+                    filename = f"{clean_prefix}_{counter:05d}.png"
+                    full_path = os.path.join(output_dir, filename)
+                    if not os.path.exists(full_path):
+                        break
+                    counter += 1
+            else:
+                suffix = f"_{idx + 1}" if multiple else ""
+                filename = f"{clean_prefix}{suffix}.png"
                 full_path = os.path.join(output_dir, filename)
-                if not os.path.exists(full_path):
-                    break
-                counter += 1
 
             arr = (frame.cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
             Image.fromarray(arr).save(full_path)
