@@ -9,6 +9,7 @@ from .nodes.string_to_elevenlabs_voice import StringToElevenLabsVoice
 from .nodes.story_final_compile import StoryFinalCompile
 from .nodes.youtube_trend_topics import YoutubeTrendTopics
 from .nodes.collect_run_outputs import CollectRunOutputs
+from .nodes.load_images_by_names import LoadImagesByNames
 
 NODE_CLASS_MAPPINGS = {
     "SaveVideoPassthrough": SaveVideoPassthrough,
@@ -23,6 +24,7 @@ NODE_CLASS_MAPPINGS = {
     "StoryFinalCompile": StoryFinalCompile,
     "YoutubeTrendTopics": YoutubeTrendTopics,
     "CollectRunOutputs": CollectRunOutputs,
+    "LoadImagesByNames": LoadImagesByNames,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -38,6 +40,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "StoryFinalCompile": "Story Final Compile",
     "YoutubeTrendTopics": "YouTube Trend Topics",
     "CollectRunOutputs": "Collect Run Outputs",
+    "LoadImagesByNames": "Load Images By Names",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
