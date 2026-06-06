@@ -1,4 +1,11 @@
+import os
+import random
+
 import torch
+
+# A pentatonic-ish set of pitches so each randomly-picked scene tone is clearly
+# distinct yet still pleasant to listen back to in the compiled video.
+_NOTE_FREQS = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99]
 
 
 class MockSceneAudio:
@@ -38,6 +45,12 @@ class MockSceneAudio:
     FUNCTION = "generate"
     CATEGORY = "mock"
 
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        # Always regenerate so every scene gets a fresh random tone, even when
+        # the inputs (text/seed) happen to be identical across loop iterations.
+        return float("nan")
+
     @staticmethod
     def _resolve_sample_rate(output_format):
         for token in output_format.split("_"):
@@ -55,16 +68,27 @@ class MockSceneAudio:
         seconds = max(0.5, base_seconds / max(0.1, float(speed)))
         num_samples = int(seconds * sample_rate)
 
-        generator = torch.Generator().manual_seed(int(seed) & 0xFFFFFFFF)
+        # Truly random per call (not tied to the fixed `seed` widget) so each
+        # scene's mock voiceover sounds different in the final video.
+        rng = random.Random(os.urandom(16))
+        freq = rng.choice(_NOTE_FREQS)
 
         t = torch.linspace(0.0, seconds, num_samples)
-        freq = 180.0 + 120.0 * float(stability)
-        tone = 0.15 * torch.sin(2.0 * torch.pi * freq * t)
-        noise = (torch.rand(num_samples, generator=generator) - 0.5) * 0.02 * float(style)
-        waveform = (tone + noise).unsqueeze(0).unsqueeze(0)
+        # Clearly audible two-tone "blip" (fundamental + a fifth).
+        tone = 0.30 * torch.sin(2.0 * torch.pi * freq * t)
+        tone += 0.12 * torch.sin(2.0 * torch.pi * freq * 1.5 * t)
+
+        # Short fade in/out to avoid clicks at the edges.
+        fade = min(int(0.02 * sample_rate), num_samples // 2)
+        if fade > 0:
+            ramp = torch.linspace(0.0, 1.0, fade)
+            tone[:fade] *= ramp
+            tone[-fade:] *= ramp.flip(0)
+
+        waveform = tone.unsqueeze(0).unsqueeze(0)
 
         print(
-            f"[MockSceneAudio] seed={seed} model={model} sr={sample_rate} "
+            f"[MockSceneAudio] freq={freq:.1f}Hz model={model} sr={sample_rate} "
             f"duration={seconds:.2f}s speed={speed} stability={stability} "
             f"similarity_boost={similarity_boost} style={style} "
             f"speaker_boost={use_speaker_boost} norm={apply_text_normalization} "
