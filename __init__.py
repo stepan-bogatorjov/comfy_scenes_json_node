@@ -6,6 +6,8 @@ from .nodes.mock_generators import MockSceneImage, MockSceneVideo
 from .nodes.mock_scene_audio import MockSceneAudio
 from .nodes.mock_scene_text import MockSceneText
 from .nodes.string_to_elevenlabs_voice import StringToElevenLabsVoice
+from .nodes.kokoro_scene_audio import KokoroSceneAudio
+from .nodes.string_to_kokoro_voice import StringToKokoroVoice
 from .nodes.story_final_compile import StoryFinalCompile
 from .nodes.youtube_trend_topics import YoutubeTrendTopics
 from .nodes.collect_run_outputs import CollectRunOutputs
@@ -21,6 +23,8 @@ NODE_CLASS_MAPPINGS = {
     "MockSceneAudio": MockSceneAudio,
     "MockSceneText": MockSceneText,
     "StringToElevenLabsVoice": StringToElevenLabsVoice,
+    "KokoroSceneAudio": KokoroSceneAudio,
+    "StringToKokoroVoice": StringToKokoroVoice,
     "StoryFinalCompile": StoryFinalCompile,
     "YoutubeTrendTopics": YoutubeTrendTopics,
     "CollectRunOutputs": CollectRunOutputs,
@@ -37,6 +41,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MockSceneAudio": "Mock Scene Audio",
     "MockSceneText": "Mock Scene Text",
     "StringToElevenLabsVoice": "String -> ElevenLabs Voice",
+    "KokoroSceneAudio": "Kokoro Scene Audio (local TTS)",
+    "StringToKokoroVoice": "String -> Kokoro Voice",
     "StoryFinalCompile": "Story Final Compile",
     "YoutubeTrendTopics": "YouTube Trend Topics",
     "CollectRunOutputs": "Collect Run Outputs",
