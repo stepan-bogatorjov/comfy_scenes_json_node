@@ -12,6 +12,8 @@ from .nodes.story_final_compile import StoryFinalCompile
 from .nodes.youtube_trend_topics import YoutubeTrendTopics
 from .nodes.collect_run_outputs import CollectRunOutputs
 from .nodes.load_images_by_names import LoadImagesByNames
+from .nodes.video_last_frame import VideoLastFrame
+from .nodes.musicgen_audio import MusicGenAudio
 
 NODE_CLASS_MAPPINGS = {
     "SaveVideoPassthrough": SaveVideoPassthrough,
@@ -29,6 +31,8 @@ NODE_CLASS_MAPPINGS = {
     "YoutubeTrendTopics": YoutubeTrendTopics,
     "CollectRunOutputs": CollectRunOutputs,
     "LoadImagesByNames": LoadImagesByNames,
+    "VideoLastFrame": VideoLastFrame,
+    "MusicGenAudio": MusicGenAudio,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -47,6 +51,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "YoutubeTrendTopics": "YouTube Trend Topics",
     "CollectRunOutputs": "Collect Run Outputs",
     "LoadImagesByNames": "Load Images By Names",
+    "VideoLastFrame": "Video Last Frame",
+    "MusicGenAudio": "MusicGen Audio (local music)",
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
