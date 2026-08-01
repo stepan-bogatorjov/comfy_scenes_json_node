@@ -33,6 +33,10 @@ VOICE_RE = re.compile(
 )
 # Story JSON saved by SaveTextPassthrough (prefix "scene"): "scene_00001.txt".
 STORY_JSON_RE = re.compile(r"^scene_(\d+)\.txt$", re.IGNORECASE)
+# Background music saved by SaveAudioPassthrough: "<prefix>_<counter>.<ext>".
+MUSIC_COUNTER_RE = re.compile(
+    r"^.*_(\d+)\.(?:" + "|".join(VOICEOVER_EXTS) + r")$", re.IGNORECASE
+)
 
 
 def _get_ffmpeg_exe() -> str:
@@ -247,6 +251,35 @@ def _find_scene_voiceovers(voiceover_dir: str) -> dict[int, str]:
     return {num: by_scene[num][1] for num in by_scene}
 
 
+def _find_music(music_dir: str) -> str:
+    """Pick the background music track from `music_dir`: the audio file with the
+    highest '_<counter>' suffix (SaveAudioPassthrough naming), falling back to
+    the newest audio file by mtime. '' if the folder has no audio."""
+    if not os.path.isdir(music_dir):
+        return ""
+    best_counter = None  # (counter, path)
+    best_mtime = None    # (mtime, path)
+    for fname in os.listdir(music_dir):
+        ext = os.path.splitext(fname)[1].lstrip(".").lower()
+        if ext not in VOICEOVER_EXTS:
+            continue
+        full = os.path.join(music_dir, fname)
+        match = MUSIC_COUNTER_RE.match(fname)
+        if match:
+            counter = int(match.group(1))
+            if best_counter is None or counter > best_counter[0]:
+                best_counter = (counter, full)
+        try:
+            mtime = os.path.getmtime(full)
+        except OSError:
+            continue
+        if best_mtime is None or mtime > best_mtime[0]:
+            best_mtime = (mtime, full)
+    if best_counter:
+        return best_counter[1]
+    return best_mtime[1] if best_mtime else ""
+
+
 class StoryFinalCompile:
     @classmethod
     def INPUT_TYPES(cls):
@@ -257,9 +290,12 @@ class StoryFinalCompile:
             "optional": {
                 "scenes_folder": ("STRING", {"default": ""}),
                 "voiceover_folder": ("STRING", {"default": ""}),
+                "music_folder": ("STRING", {"default": ""}),
                 "transition_duration": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 2.0, "step": 0.05}),
+                "playback_speed": ("FLOAT", {"default": 1.0, "min": 0.25, "max": 4.0, "step": 0.05}),
                 "voiceover_volume": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),
                 "original_audio_volume": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 1.0, "step": 0.05}),
+                "music_volume": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 2.0, "step": 0.05}),
                 "voiceover_subtitles": ("BOOLEAN", {"default": False}),
                 "dialogue_subtitles": ("BOOLEAN", {"default": False}),
                 "filename_prefix": ("STRING", {"default": "final"}),
@@ -277,8 +313,10 @@ class StoryFinalCompile:
         return float("nan")
 
     def compile(self, trigger, scenes_folder="", voiceover_folder="",
-                transition_duration=0.2, voiceover_volume=1.0,
-                original_audio_volume=0.2, voiceover_subtitles=False,
+                music_folder="", transition_duration=0.2, playback_speed=1.0,
+                voiceover_volume=1.0,
+                original_audio_volume=0.2, music_volume=0.3,
+                voiceover_subtitles=False,
                 dialogue_subtitles=False, filename_prefix="final"):
         output_dir = folder_paths.get_output_directory()
         scenes_dir = _resolve_folder(output_dir, scenes_folder)
@@ -300,6 +338,13 @@ class StoryFinalCompile:
         v_has_audio = [a for _, a in v_probe]
 
         n = len(videos)
+        # >1 speeds the final cut up, <1 slows it down. Applied as the very last
+        # stage of both chains, so every timing computed below (transition
+        # offsets, subtitle windows, voiceover delays) stays in the original
+        # timebase and is scaled uniformly by setpts/atempo.
+        speed = float(playback_speed) if playback_speed else 1.0
+        speed = min(max(speed, 0.25), 4.0)
+        retimed = abs(speed - 1.0) > 1e-6
         trans = float(transition_duration) if n > 1 else 0.0
         final_video_dur = sum(v_durations) - (n - 1) * trans
 
@@ -318,6 +363,17 @@ class StoryFinalCompile:
             path = voiceovers.get(scene_nums[i])
             if path:
                 audio_inputs.append((i, path, _probe_duration(ffmpeg, path)))
+
+        # One background music track for the whole video, picked from
+        # music_folder (empty folder name = no music). It is laid over the
+        # finished timeline from 0:00; anything past the end is cut off, and a
+        # track shorter than the video simply stops (the rest stays silent).
+        music_path = ""
+        if music_folder.strip() and music_volume > 0:
+            music_dir = _resolve_folder(output_dir, music_folder)
+            music_path = _find_music(music_dir)
+            if not music_path:
+                print(f"[StoryFinalCompile] no music track found in {music_dir}")
 
         counter = 1
         while True:
@@ -425,6 +481,11 @@ class StoryFinalCompile:
             # Single scene: map its subtitled output if any, else the raw stream.
             video_map = scene_src[0] if 0 in scene_drawtext else "0:v"
 
+        if retimed:
+            src = video_map if video_map.startswith("[") else f"[{video_map}]"
+            video_parts.append(f"{src}setpts=PTS/{speed:.6f}[vspd]")
+            video_map = "[vspd]"
+
         # --- audio filtergraph ---
         # Voiceovers sit on top; each scene's own audio is kept underneath at a
         # reduced volume. Everything is delayed to its scene's timeline start.
@@ -465,6 +526,18 @@ class StoryFinalCompile:
                 )
                 audio_labels.append(label)
 
+        # Background music bed, trimmed to the video length. It shares the
+        # pre-speed timebase with everything else, so the global atempo below
+        # retimes it together with voiceover and scene audio.
+        if music_path:
+            music_idx = n + len(audio_inputs)
+            audio_parts.append(
+                f"[{music_idx}:a]atrim=0:{final_video_dur:.3f},asetpts=N/SR/TB,"
+                f"volume={music_volume:.4f},"
+                f"aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[music]"
+            )
+            audio_labels.append("[music]")
+
         has_audio = bool(audio_labels)
         if has_audio:
             if len(audio_labels) > 1:
@@ -478,9 +551,10 @@ class StoryFinalCompile:
             # Pad with trailing silence so the audio always covers the full
             # video. apad is infinite, so the output length is bounded by the
             # explicit -t below (NOT -shortest, which hangs against apad).
-            audio_parts.append(f"{mixed}apad[aout]")
+            speed_tail = f",{_atempo_chain(speed)}" if retimed else ""
+            audio_parts.append(f"{mixed}apad{speed_tail}[aout]")
 
-        dur = f"{final_video_dur:.3f}"
+        dur = f"{final_video_dur / speed:.3f}"
 
         print(f"[StoryFinalCompile] scenes={n} videos={[os.path.basename(v) for v in videos]}")
         if audio_inputs:
@@ -493,11 +567,18 @@ class StoryFinalCompile:
             print("[StoryFinalCompile] no voiceovers")
         n_og = sum(v_has_audio) if original_audio_volume > 0 else 0
         print(f"[StoryFinalCompile] original audio: {n_og}/{n} scenes @ vol {original_audio_volume}")
+        if music_path:
+            music_dur = _probe_duration(ffmpeg, music_path)
+            tail = (f"trimmed from {music_dur:.2f}s" if music_dur > final_video_dur + 0.05
+                    else f"{music_dur:.2f}s, ends {final_video_dur - music_dur:.2f}s early")
+            print(f"[StoryFinalCompile] music {os.path.basename(music_path)} "
+                  f"@ vol {music_volume} ({tail})")
         if scene_drawtext:
             subbed = [scene_nums[i] for i in sorted(scene_drawtext)]
             print(f"[StoryFinalCompile] subtitles (voiceover={voiceover_subtitles} "
                   f"dialogue={dialogue_subtitles}) on scenes {subbed}")
-        print(f"[StoryFinalCompile] video_dur={final_video_dur:.2f}s -> {out_path}")
+        print(f"[StoryFinalCompile] speed={speed:.2f}x "
+              f"video_dur={final_video_dur:.2f}s -> {final_video_dur / speed:.2f}s -> {out_path}")
 
         def _run(cmd_args):
             # cwd=output_dir so drawtext can reference subtitle files by
@@ -546,14 +627,16 @@ class StoryFinalCompile:
 
             # Pass 2: audio mix over the finished video. Input order matches the
             # indices used in the audio filtergraph: scene videos 0..n-1 (their
-            # audio only), voiceovers n.., and the finished video last.
+            # audio only), voiceovers n.., music, and the finished video last.
             cmd2 = [ffmpeg, "-y", "-nostdin"]
             for v in videos:
                 cmd2 += ["-i", v]
             for _, path, _ in audio_inputs:
                 cmd2 += ["-i", path]
+            if music_path:
+                cmd2 += ["-i", music_path]
             cmd2 += ["-i", tmp_video]
-            vid_idx = n + len(audio_inputs)
+            vid_idx = n + len(audio_inputs) + (1 if music_path else 0)
             cmd2 += ["-filter_complex", ";".join(audio_parts),
                      "-map", f"{vid_idx}:v", "-map", "[aout]",
                      "-c:v", "copy", "-c:a", "aac", "-t", dur, out_path]
