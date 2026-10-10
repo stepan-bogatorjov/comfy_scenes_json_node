@@ -6,11 +6,38 @@ import subprocess
 
 import folder_paths
 
-# Fonts for burned-in subtitles: italic for the (off-screen) voiceover
-# narration, regular for in-video character dialogue.
-SUBTITLE_FONT_ITALIC = r"C:\Windows\Fonts\ariali.ttf"
-SUBTITLE_FONT_REGULAR = r"C:\Windows\Fonts\arial.ttf"
 SUBTITLE_MAX_LINES = 3  # wrap long text onto up to this many lines
+
+# Burned-in subtitles: the italic file is used for the (off-screen) voiceover
+# narration, the regular one for in-video character dialogue.
+# Selectable subtitle fonts: name -> (regular file, italic file) in
+# C:\Windows\Fonts. A missing italic file falls back to the regular one.
+_FONTS_DIR = r"C:\Windows\Fonts"
+SUBTITLE_FONTS = {
+    "Arial": ("arial.ttf", "ariali.ttf"),
+    "Arial Bold": ("arialbd.ttf", "arialbi.ttf"),
+    "Segoe UI Bold": ("segoeuib.ttf", "segoeuiz.ttf"),
+    "Calibri Bold": ("calibrib.ttf", "calibriz.ttf"),
+    "Verdana Bold": ("verdanab.ttf", "verdanaz.ttf"),
+    "Bahnschrift": ("bahnschrift.ttf", "bahnschrift.ttf"),
+    "Impact": ("impact.ttf", "impact.ttf"),
+}
+
+
+def _subtitle_fonts(name, custom_path, italic_voiceover):
+    """Return (dialogue_font, voiceover_font) file paths. A custom font file
+    overrides the named one and is used for both streams."""
+    if custom_path and custom_path.strip():
+        path = custom_path.strip().strip('"')
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"[StoryFinalCompile] subtitle font not found: {path}")
+        return path, path
+    regular, italic = SUBTITLE_FONTS.get(name, SUBTITLE_FONTS["Arial"])
+    regular = os.path.join(_FONTS_DIR, regular)
+    italic = os.path.join(_FONTS_DIR, italic)
+    if not os.path.isfile(italic):
+        italic = regular
+    return regular, (italic if italic_voiceover else regular)
 
 
 class _AnyType(str):
@@ -299,6 +326,15 @@ class StoryFinalCompile:
                 "voiceover_subtitles": ("BOOLEAN", {"default": False}),
                 "dialogue_subtitles": ("BOOLEAN", {"default": False}),
                 "filename_prefix": ("STRING", {"default": "final"}),
+                # Subtitle look. Defaults reproduce the previous behaviour.
+                "subtitle_font": (list(SUBTITLE_FONTS), {"default": "Arial"}),
+                "subtitle_custom_font": ("STRING", {"default": "",
+                    "tooltip": "Path to a .ttf/.otf file; overrides subtitle_font"}),
+                "subtitle_italic_voiceover": ("BOOLEAN", {"default": True}),
+                "subtitle_bottom_margin": ("FLOAT", {"default": 0.06, "min": 0.0, "max": 0.5, "step": 0.01,
+                    "tooltip": "Gap under the text as a share of frame height; ~0.2 clears the Reels/TikTok UI"}),
+                "subtitle_size": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 2.0, "step": 0.05,
+                    "tooltip": "Scales the maximum font size (base 4.2% of frame height)"}),
             },
         }
 
@@ -317,7 +353,10 @@ class StoryFinalCompile:
                 voiceover_volume=1.0,
                 original_audio_volume=0.2, music_volume=0.3,
                 voiceover_subtitles=False,
-                dialogue_subtitles=False, filename_prefix="final"):
+                dialogue_subtitles=False, filename_prefix="final",
+                subtitle_font="Arial", subtitle_custom_font="",
+                subtitle_italic_voiceover=True, subtitle_bottom_margin=0.06,
+                subtitle_size=1.0):
         output_dir = folder_paths.get_output_directory()
         scenes_dir = _resolve_folder(output_dir, scenes_folder)
         voiceover_dir = _resolve_folder(output_dir, voiceover_folder)
@@ -392,8 +431,11 @@ class StoryFinalCompile:
         # Story JSON is auto-located in the output dir (it lives there until
         # CollectRunOutputs archives it).
         vo_texts, dlg_lists = {}, {}
+        font_dialogue = font_voiceover = ""
         if voiceover_subtitles or dialogue_subtitles:
             vo_texts, dlg_lists = _load_subtitle_sources(_find_story_json(output_dir))
+            font_dialogue, font_voiceover = _subtitle_fonts(
+                subtitle_font, subtitle_custom_font, subtitle_italic_voiceover)
 
         sub_tmp_files = []
         scene_drawtext = {}  # video index -> filterchain of stacked drawtext
@@ -402,11 +444,11 @@ class StoryFinalCompile:
             # (text, font, window) items for this scene; window=None spans all.
             items = []
             if voiceover_subtitles and num in vo_texts:
-                items.append((vo_texts[num], SUBTITLE_FONT_ITALIC, None))
+                items.append((vo_texts[num], font_voiceover, None))
             if dialogue_subtitles and num in dlg_lists:
                 lines_ = dlg_lists[num]
                 if len(lines_) == 1:
-                    items.append((lines_[0], SUBTITLE_FONT_REGULAR, None))
+                    items.append((lines_[0], font_dialogue, None))
                 else:
                     weights = [max(1, len(t)) for t in lines_]
                     total = sum(weights)
@@ -414,7 +456,7 @@ class StoryFinalCompile:
                     for text, wgt in zip(lines_, weights):
                         start = scene_dur * acc / total
                         acc += wgt
-                        items.append((text, SUBTITLE_FONT_REGULAR,
+                        items.append((text, font_dialogue,
                                       (start, scene_dur * acc / total)))
             if not items:
                 continue
@@ -422,8 +464,8 @@ class StoryFinalCompile:
             w, h = _probe_size(ffmpeg, videos[i])
             w, h = w or 480, h or 848
             max_w = w - 2 * max(8, int(w * 0.05))
-            max_size = max(20, int(h * 0.042))
-            bottom = max(12, int(h * 0.06))
+            max_size = max(20, int(h * 0.042 * float(subtitle_size)))
+            bottom = max(12, int(h * float(subtitle_bottom_margin)))
 
             draws = []
             for j, (text, font_path, window) in enumerate(items):
