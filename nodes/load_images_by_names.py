@@ -105,10 +105,20 @@ class LoadImagesByNames:
                 index.setdefault(stem.lower(), full)
         return index
 
+    # A 1x1 stub is a valid tensor but not a valid image downstream: the video
+    # model rejects anything under 8x8 with "Image dimensions 1x3 are too small",
+    # which kills the scene even though its own frame arrived fine on reference_0.
+    # So the placeholder is a real, flat, neutral image. Mid-grey is the least
+    # opinionated thing to hand a video model as a style reference — it pushes
+    # neither light nor dark. `count` stays 0, so callers can still tell that
+    # nothing actually matched.
+    PLACEHOLDER_SIZE = 512
+
     @staticmethod
     def _placeholder():
-        image = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
-        mask = torch.zeros((1, 1, 1), dtype=torch.float32)
+        size = LoadImagesByNames.PLACEHOLDER_SIZE
+        image = torch.full((1, size, size, 3), 0.5, dtype=torch.float32)
+        mask = torch.zeros((1, size, size), dtype=torch.float32)
         return (image, mask, 0, [])
 
     def load(self, names, folder):
